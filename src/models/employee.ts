@@ -2,115 +2,128 @@ export abstract class Employee {
     protected id: string;
     protected role: string;
     protected dept: string;
-    protected reporters: Map<string, Employee>;
+    protected reportsTo: Employee | null;
+    protected reporteeCount: number;
 
     constructor(id: string, role: string, dept: string = "") {
         this.id = id;
         this.role = role;
         this.dept = dept;
-        this.reporters = new Map<string, Employee>();
+        this.reportsTo = null;
+        this.reporteeCount = 0;
     }
 
-    getId() {
+    getId(): string {
         return this.id;
     }
 
-    getRole() {
+    getRole(): string {
         return this.role;
     }
 
-    getDept() {
+    getDept(): string {
         return this.dept;
     }
 
-    getReporters() {
-        return this.reporters;
+    getReportsTo(): Employee | null {
+        return this.reportsTo;
     }
 
-    hasReporter(empId: string): boolean {
-        return this.reporters.has(empId);
+    getReporteeCount(): number {
+        return this.reporteeCount;
     }
 
-    reporterCount(): number {
-        return this.reporters.size;
+    incrementReporteeCount(): void {
+        this.reporteeCount++;
     }
 
+    decrementReporteeCount(): void {
+        if (this.reporteeCount > 0) this.reporteeCount--;
+    }
 
-    canAddReporter(emp: Employee): boolean {
-        return true;
-    };
-    abstract addReporter(emp: Employee): void;
+    abstract canReportTo(emp: Employee): boolean;
+    abstract canAcceptReportee(emp: Employee): boolean;
+
+    
+    reportTo(superior: Employee): void {
+        if (this.reportsTo) {
+            console.log(`${this.role} (${this.id}) already reports to ${this.reportsTo.getId()}`);
+            return;
+        }
+
+        if (!this.canReportTo(superior)) {
+            console.log(`${this.role} cannot report to ${superior.getRole()}`);
+            return;
+        }
+
+        if (!superior.canAcceptReportee(this)) {
+            console.log(`${superior.getId()} cannot accept anymore reportees`);
+            return;
+        }
+
+        this.reportsTo = superior;
+        superior.incrementReporteeCount();
+    }
 }
 
+
+
 export class Founder extends Employee {
-    private static instancesCreated = 0;
+    private static instanceCount = 0;
+
     constructor(id: string) {
-        if (Founder.instancesCreated == 1) {
-            throw new Error("Only one Founder instance can be created.");
-        }
+        if (Founder.instanceCount >= 1)
+            throw new Error("Only one Founder can be created.");
+
         super(id, "Founder");
-        Founder.instancesCreated++;
+        Founder.instanceCount++;
     }
 
-    canAddReporter(emp: Employee): boolean {
+    canReportTo(): boolean {
+        return false; 
+    }
+
+    canAcceptReportee(emp: Employee): boolean {
+        return ["Co-Founder", "Director"].includes(emp.getRole());
+    }
+}
+
+
+export class CoFounder extends Employee {
+    private static instanceCount = 0;
+
+    constructor(id: string) {
+        if (CoFounder.instanceCount >= 2)
+            throw new Error("Only up to two Co-Founders can be created.");
+
+        super(id, "Co-Founder");
+        CoFounder.instanceCount++;
+    }
+
+    canReportTo(): boolean {
         return false;
     }
 
-    addReporter(emp: Employee): void {
-        if (!this.canAddReporter(emp)) {
-            console.log(`${emp.getRole()} directy reporting to Founder`);
-            return;
-        }
-        if (this.hasReporter(emp.getId())) {
-            console.log("Employee already reporting to him");
-            return;
-        }
-        this.reporters.set(emp.getId(), emp);
-    }
-}
-
-export class CoFounder extends Employee {
-    private static instancesCreated = 0;
-    constructor(id: string) {
-        if (CoFounder.instancesCreated == 2) {
-            throw new Error("Only two Co-Founder instance can be created.");
-        }
-        super(id, "Co-Founder");
-        CoFounder.instancesCreated++;
-    }
-    
-    canAddReporter(emp: Employee): boolean {
+    canAcceptReportee(emp: Employee): boolean {
         return emp.getRole() === "Director";
     }
-
-    addReporter(emp: Employee): void {
-        if (!this.canAddReporter(emp)) {
-            console.log(`${emp.getRole()} directy reporting to Co-Founder`);
-            return;
-        }
-        if (this.hasReporter(emp.getId())) {
-            console.log("Employee already reporting to him");
-            return;
-        }
-        this.reporters.set(emp.getId(), emp);
-    }
 }
+
 
 export class Director extends Employee {
     constructor(id: string, dept: string) {
         super(id, "Director", dept);
     }
 
-    canAddReporter(emp: Employee): boolean {
-        return emp.getRole() === "Manager" && emp.getDept() === this.dept;
+    canReportTo(emp: Employee): boolean {
+        return (
+            emp.getRole() === "Founder" ||
+            emp.getRole() === "Co-Founder"
+        );
     }
 
-    addReporter(emp: Employee): void {
-        if (!this.canAddReporter(emp)) {
-            console.log("Director can only add Managers from the same department.");
-            return;
-        }
-        this.reporters.set(emp.getId(), emp);
+    canAcceptReportee(emp: Employee): boolean {
+        return emp.getRole() === "Manager" && emp.getDept() === this.dept;
     }
 }
 
@@ -120,59 +133,54 @@ export class Manager extends Employee {
         super(id, "Manager", dept);
     }
 
-    canAddReporter(emp: Employee): boolean {
+    canReportTo(emp: Employee): boolean {
+        return emp.getRole() === "Director" && emp.getDept() === this.dept;
+    }
+
+    canAcceptReportee(emp: Employee): boolean {
         return (
-            (emp.getRole() === "Supervisor" || emp.getRole() === "Worker") &&
+            ["Supervisor", "Worker"].includes(emp.getRole()) &&
             emp.getDept() === this.dept
         );
     }
-
-    addReporter(emp: Employee): void {
-        if (!this.canAddReporter(emp)) {
-            console.log("Manager can only add Supervisors or Workers from the same department.");
-            return;
-        }
-        this.reporters.set(emp.getId(), emp);
-    }
 }
 
+
 export class Supervisor extends Employee {
-    private static MAX_REPORTERS = 4;
+    private static readonly MAX_REPORTEES = 4;
 
     constructor(id: string, dept: string) {
         super(id, "Supervisor", dept);
     }
 
-    canAddReporter(emp: Employee): boolean {
-        const validRole = emp.getRole() === "Worker";
-        const sameDept = emp.getDept() === this.dept;
-        const withinLimit = this.reporterCount() < Supervisor.MAX_REPORTERS;
-        return validRole && sameDept && withinLimit;
+    canReportTo(emp: Employee): boolean {
+        return emp.getRole() === "Manager" && emp.getDept() === this.dept;
     }
 
-    addReporter(emp: Employee): void {
-        if (!this.canAddReporter(emp)) {
-            if (this.reporterCount() >= Supervisor.MAX_REPORTERS) {
-                console.log("Supervisor cannot have more than 4 reporters.");
-            } else {
-                console.log("Supervisor can only add Workers from the same department.");
-            }
-            return;
-        }
-        this.reporters.set(emp.getId(), emp);
+    canAcceptReportee(emp: Employee): boolean {
+        const canAccept =
+            emp.getRole() === "Worker" &&
+            emp.getDept() === this.dept &&
+            this.reporteeCount < Supervisor.MAX_REPORTEES;
+
+        return canAccept;
     }
 }
+
 
 export class Worker extends Employee {
     constructor(id: string, dept: string) {
         super(id, "Worker", dept);
     }
 
-    canAddReporter(): boolean {
-        return false;
+    canReportTo(emp: Employee): boolean {
+        return (
+            ["Supervisor", "Manager"].includes(emp.getRole()) &&
+            emp.getDept() === this.dept
+        );
     }
 
-    addReporter(emp: Employee): void {
-        console.log("Workers cannot have any reporters.");
+    canAcceptReportee(): boolean {
+        return false; 
     }
 }
